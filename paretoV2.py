@@ -110,22 +110,26 @@ async def pareto_front(
     return solns
 
 
-def extract_and_remove_solve_statement(file_path: str) -> Tuple[List[Tuple[str, OptDirection]], str]:
-    """
-    Open the .mzn file, extract the solve statement, and remove it from the file.
-    Then save the modified content to a temporary file.
-    :param file_path: Path to the MiniZinc model file
-    :return: A tuple containing a list of objectives and the path to the temporary file with the modified model
-    """
+def extract_and_remove_solve_statement(file_path: str):
     with open(file_path, 'r') as file:
         lines = file.readlines()
 
     new_lines = []
     objectives = []
+    onearray = False
+    twoarrays = False
 
     for line in lines:
         if line.startswith("solve"):
-            matches = re.findall(r'(maximize|minimize)\s+(\w+)', line)
+            # Controllo il numero di parentesi quadre
+            if line.count('[') == 2:
+                onearray = True
+            elif line.count('[') == 4:
+                twoarrays = True
+
+            # Modifica l'espressione regolare
+            matches = re.findall(r'(maximize|minimize)\s+(\w+(?:\[\d+\])?)', line)
+
             if matches:
                 objectives = [
                     (var, OptDirection.MAXIMIZE if direction == 'maximize' else OptDirection.MINIMIZE)
@@ -134,18 +138,29 @@ def extract_and_remove_solve_statement(file_path: str) -> Tuple[List[Tuple[str, 
         else:
             new_lines.append(line)
 
-    # Create a temporary file and write the modified lines to it
-    temp_file = tempfile.NamedTemporaryFile(delete=False, suffix=".mzn", mode='w')
-    temp_file.writelines(new_lines)
-    temp_file.close()
+    # Controllo se ci sono variabili con "[]" negli obiettivi
+    array_vars = [var for var, _ in objectives if '[' in var]
+    helper =["bbb","ccc"]
+    if array_vars:
+        # Aggiungo linee nel file temporaneo se trovo variabili con "[]"
+        print(array_vars)
+        for var in array_vars:
+            new_lines.append(f'var int: {helper};\n')
+            new_lines.append(f'constraint {helper} = {var};\n')
 
-    return objectives, temp_file.name
+    # Creazione del file temporaneo
+    temp_model_file = file_path.replace(".mzn", "_temp.mzn")
+    with open(temp_model_file, 'w') as temp_file:
+        temp_file.writelines(new_lines)
+
+    return objectives, temp_model_file, onearray, twoarrays
 
 
 def main(model_file: str, data_file: str = None):
-
+    onearray= False
+    twoarrays=False
     # Extract and remove the solve statement before loading the model
-    variables, temp_model_file = extract_and_remove_solve_statement(model_file)
+    variables, temp_model_file, onearray, twoarrays = extract_and_remove_solve_statement(model_file)
 
     if not variables:
         print("No variables specified for optimization. Exiting.")
