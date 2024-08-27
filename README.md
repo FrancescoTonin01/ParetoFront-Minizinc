@@ -21,3 +21,9 @@ This project provides a Python script to solve MiniZinc models and find the Pare
 
   ```sh
   pip install matplotlib minizinc
+
+### Clone the repository
+  ```sh
+git clone https://github.com/FrancescoTonin01/ParetoFront-Minizinc/
+cd ParetoFront-Minizinc
+
