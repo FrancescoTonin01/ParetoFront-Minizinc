@@ -51,7 +51,7 @@ async def pareto_solutions(
 
 
 async def pareto_front(
-    inst: Instance, objectives: List[Tuple[str, OptDirection]], variables: List[Tuple[str]], *args, **kwargs
+    inst: Instance, objectives: List[Tuple[str, OptDirection]], *args, **kwargs
 ) -> List[Result]:
     solns = []
     async for res in pareto_solutions(inst, objectives, *args, **kwargs):
@@ -68,6 +68,8 @@ async def pareto_front(
         if not is_dominated:
             solns = [sol for sol in solns if sol not in solns_to_remove]
             solns.append(res)
+    return solns
+
 
     # Extract x_values and y_values based on the variables
     x_var, y_var = variables[0][0], variables[1][0] if len(variables) > 1 else None
