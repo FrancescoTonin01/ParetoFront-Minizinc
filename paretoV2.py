@@ -7,7 +7,8 @@ import matplotlib.pyplot as plt
 import re
 import tempfile
 import os
-
+import subprocess
+import sys
 
 class OptDirection(Enum):
     MAXIMIZE = 1
@@ -71,45 +72,6 @@ async def pareto_front(
     return solns
 
 
-    # Extract x_values and y_values based on the variables
-    x_var, y_var = variables[0][0], variables[1][0] if len(variables) > 1 else None
-    x_values = [res[x_var] for res in solns]
-    y_values = [res[y_var] for res in solns] if y_var else [0] * len(x_values)
-
-    # Check if all corresponding pairs of x_values and y_values are equal
-    if y_var:
-        all_equal = all(x == y for x, y in zip(x_values, y_values))
-        if all_equal:
-            # If all pairs are equal, create a new array with only x_values
-            res = x_values
-            x_values = [pair[0] for pair in res] 
-            y_values = [pair[1] for pair in res]
-            new_res = [{"x": x, "y": y} for x, y in zip(x_values, y_values)]
-            print("All corresponding pairs of x_values and y_values are equal.")
-            print("Recalculating Pareto front with new array.")
-
-            # Recalculate Pareto front with the new array
-            solns = []
-            for res in new_res:
-                is_dominated = False
-                solns_to_remove = []
-                for existing_sol in solns:
-                    if all(res[name] <= existing_sol[name] for name in ["x", "y"]) and \
-                       any(res[name] < existing_sol[name] for name in ["x", "y"]):
-                        solns_to_remove.append(existing_sol)
-                    elif all(existing_sol[name] <= res[name] for name in ["x", "y"]) and \
-                         any(existing_sol[name] < res[name] for name in ["x", "y"]):
-                        is_dominated = True
-                        break
-                if not is_dominated:
-                    solns = [sol for sol in solns if sol not in solns_to_remove]
-                    solns.append(res)
-    else:
-        print("y_var does not exist; cannot perform comparison.")
-
-    return solns
-
-
 def extract_and_remove_solve_statement(file_path: str):
     with open(file_path, 'r') as file:
         lines = file.readlines()
@@ -121,13 +83,13 @@ def extract_and_remove_solve_statement(file_path: str):
 
     for line in lines:
         if line.startswith("solve"):
-            # Controllo il numero di parentesi quadre
+            # Check the number of square brackets
             if line.count('[') == 2:
                 onearray = True
             elif line.count('[') == 4:
                 twoarrays = True
 
-            # Modifica l'espressione regolare
+            # Modify the regular expression
             matches = re.findall(r'(maximize|minimize)\s+(\w+(?:\[\d+\])?)', line)
 
             if matches:
@@ -138,80 +100,91 @@ def extract_and_remove_solve_statement(file_path: str):
         else:
             new_lines.append(line)
 
-    # Controllo se ci sono variabili con "[]" negli obiettivi
-    array_vars = [var for var, _ in objectives if '[' in var]
-    helper =["bbb","ccc"]
-    if array_vars:
-        # Aggiungo linee nel file temporaneo se trovo variabili con "[]"
-        print(array_vars)
-        for var in array_vars:
-            new_lines.append(f'var int: {helper};\n')
-            new_lines.append(f'constraint {helper} = {var};\n')
+    # Check if there are variables with "[]" in the objectives
+    array_vars = [var for var, _ in objectives]
+    helper = ["bbb", "ccc"]
+    renamed_objectives = []
+    
+    for h, var in zip(helper, array_vars):
+        # Add the new variable to renamed_objectives
+        direction = next(dir for v, dir in objectives if v == var)  # Get the direction of the objective
+        renamed_objectives.append((h, direction))  # Add the association (helper, direction)
 
-    # Creazione del file temporaneo
+        # Add variable declarations and constraints to new_lines
+        new_lines.append(f'var int: {h};\n')  # Add the declaration of the variable
+        new_lines.append(f'constraint {h} = {var};\n')  # Associate the helper element with the variable with "[]"
+        print(f'Associated {h} with {var}')  # Print the association
+
+    objectives = renamed_objectives  # Update objectives with the new names
+
+    # Create the temporary file
     temp_model_file = file_path.replace(".mzn", "_temp.mzn")
     with open(temp_model_file, 'w') as temp_file:
         temp_file.writelines(new_lines)
 
-    return objectives, temp_model_file, onearray, twoarrays
+    return objectives, temp_model_file, array_vars
 
 
 def main(model_file: str, data_file: str = None):
-    onearray= False
-    twoarrays=False
+    onearray = False
+    twoarrays = False
     # Extract and remove the solve statement before loading the model
-    variables, temp_model_file, onearray, twoarrays = extract_and_remove_solve_statement(model_file)
-
-    if not variables:
-        print("No variables specified for optimization. Exiting.")
-        return
-
-    print("Finding solutions...")
-
-    # Load the MiniZinc model after modifying the file
+    variables, temp_model_file, ogvar = extract_and_remove_solve_statement(model_file)
     model = Model(temp_model_file)
+    
     if data_file:
         model.add_file(data_file)
 
     gecode = Solver.lookup("gecode")
     instance = Instance(gecode, model)
     
-    results = asyncio.run(pareto_front(instance, variables))
-    x_var, y_var = variables[0][0], variables[1][0] if len(variables) > 1 else None
-    x_values = [res[x_var] for res in results]
-    y_values = [res[y_var] for res in results] if y_var else [0] * len(x_values)
-    # Check if all corresponding pairs of x_values and y_values are equal
-    if y_var:  # Ensure y_values exists
-    	all_equal = all(x == y for x, y in zip(x_values, y_values))
-    	if all_equal:
-      	  # Create an array with only the x_values if all pairs (x, y) are equal
-          res = x_values
-          x_values = [pair[0] for pair in res] 
-          y_values = [pair[1] for pair in res]
-          print("All corresponding pairs of x_values and y_values are equal.")
-          print("New array with only x_values:", res)
-    	else:
-        # Handle the case where not all pairs are equal (optional)
-       	  print("Not all corresponding pairs of x_values and y_values are equal.")
-    else:
-    # Handle the case where y_var does not exist (optional)
-    	print("y_var does not exist; cannot perform comparison.")
+    # If no optimization variables are specified, run MiniZinc directly with "solve satisfy;"
+    if not variables:
+        print("No variables specified for optimization. Simply solving the model...")
 
+        # Prepare the command to run MiniZinc
+        command = ["minizinc", temp_model_file]
+        if data_file:
+            command.append(data_file)
+
+        # Run the MiniZinc model using subprocess
+        result = subprocess.run(command, capture_output=True, text=True)
+
+        # Print the output of the MiniZinc execution
+        print(result.stdout)
+
+        # Handle any errors that occurred during the MiniZinc execution
+        if result.stderr:
+            print("Error during MiniZinc execution:")
+            print(result.stderr)
+
+        # Clean up the temporary file
+        os.remove(temp_model_file)
+        return
+	
+    print("Finding solutions...")
+
+    # Load the MiniZinc model after modifying the file
+    results = asyncio.run(pareto_front(instance, variables))
+    x_var, y_var = ogvar[0], ogvar[1] if len(ogvar) > 1 else None
+    x_values = [res[variables[0][0]] for res in results]
+    y_values = [res[variables[1][0]] for res in results] if y_var else [0] * len(x_values)
+    
     for res in results:
-        print(", ".join(f"{var}: {res[var]}" for var, _ in variables))
+        print(", ".join(f"{original_var}: {res[helper_var]}" for original_var, (helper_var, _) in zip(ogvar, variables)))
+    if variables: 
+    	plt.figure(figsize=(10, 6))
+    	plt.scatter(x_values, y_values, color='blue', s=100)
     
-    plt.figure(figsize=(10, 6))
-    plt.scatter(x_values, y_values, color='blue', s=100)
+    	for x, y in zip(x_values, y_values):
+            plt.annotate(f'({x}, {y})', (x, y), xytext=(5, 5), textcoords='offset points')
     
-    for x, y in zip(x_values, y_values):
-        plt.annotate(f'({x}, {y})', (x, y), xytext=(5, 5), textcoords='offset points')
-    
-    plt.xlabel(x_var)
-    plt.ylabel(y_var if y_var else "")
-    plt.title(f'Pareto Front: {x_var} vs {y_var}' if y_var else f'Pareto Front: {x_var}')
-    plt.grid(True, linestyle='--', alpha=0.7)
-    plt.tight_layout()
-    plt.show()
+    	plt.xlabel(x_var)
+    	plt.ylabel(y_var if y_var else "")
+    	plt.title(f'Pareto Front: {x_var} vs {y_var}' if y_var else f'Pareto Front: {x_var}')
+    	plt.grid(True, linestyle='--', alpha=0.7)
+    	plt.tight_layout()
+    	plt.show()
 
     os.remove(temp_model_file)
 
