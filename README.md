@@ -7,11 +7,11 @@ This project provides a Python script to solve MiniZinc models and find the Pare
 ## Features
 
 - **Pareto Front Computation**: Automatically computes and extracts the Pareto front from a MiniZinc model with multiple objectives.
-- 
+ 
 - **Multi-Objective Handling**: Supports both maximization and minimization objectives, even when objectives are expressed as arrays.
-- 
+ 
 - **Visualization**: Generates a scatter plot for the Pareto front when dealing with two objectives, showing the trade-offs between them.
-- 
+ 
 - **Dynamic Model Handling**: Modifies the MiniZinc model on the fly to compute the Pareto front without altering the original model file.
 
 ## Installation
