@@ -75,7 +75,12 @@ Use the following command to run the script:
   x: 16, y: 12
   x: 14, y: 13
   x: 12, y: 14
-```
+  ```
+### Where a data file is needed:
+
+  ```sh
+  python paretoV2.py examples/more/schedule.mzn --data_file examples/more/input.dzn
+  ```
 
 ## Important Note on Writing the `solve` Statement
 
