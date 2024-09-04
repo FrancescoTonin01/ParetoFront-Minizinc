@@ -125,7 +125,7 @@ def extract_and_remove_solve_statement(file_path: str):
     return objectives, temp_model_file, array_vars
 
 
-def main(model_file: str, data_file: str = None):
+def main(model_file: str, data_file: str = None, solver_type: str = "gecode"):
     onearray = False
     twoarrays = False
     # Extract and remove the solve statement before loading the model
@@ -135,8 +135,8 @@ def main(model_file: str, data_file: str = None):
     if data_file:
         model.add_file(data_file)
 
-    gecode = Solver.lookup("gecode")
-    instance = Instance(gecode, model)
+    solver = Solver.lookup(solver_type)
+    instance = Instance(solver, model)
     
     # If no optimization variables are specified, run MiniZinc directly with "solve satisfy;"
     if not variables:
@@ -193,7 +193,8 @@ if __name__ == "__main__":
     parser = argparse.ArgumentParser(description="Process a MiniZinc model and find the Pareto front.")
     parser.add_argument("model_file", type=str, help="Path to the MiniZinc model file (.mzn)")
     parser.add_argument("--data_file", type=str, default=None, help="Optional path to the MiniZinc data file (.dzn)")
+    parser.add_argument("--solver", type=str, default="gecode", help="Solver to use for MiniZinc (default: gecode)")
 
     args = parser.parse_args()
 
-    main(args.model_file, args.data_file)
+    main(args.model_file, args.data_file, args.solver)
