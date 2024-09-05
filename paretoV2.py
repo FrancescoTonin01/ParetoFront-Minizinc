@@ -51,10 +51,33 @@ async def pareto_solutions(
             result = await branch.solve_async(*args, **kwargs)
 
 
+async def run_pareto_with_timeout(instance, objectives, timeout: int):
+    partial_results = []  # Inizializza una lista per risultati parziali
+    try:
+        # Definiamo una task per eseguire il ciclo asincrono
+        async def collect_solutions():
+            async for result in pareto_solutions(instance, objectives):
+                partial_results.append(result)
+        
+        # Ora applichiamo il timeout all'intero ciclo
+        await asyncio.wait_for(collect_solutions(), timeout=timeout)
+    
+    except asyncio.TimeoutError:
+        # Gestione del timeout
+        print(f"Timeout di {timeout} secondi raggiunto. Restituisco le soluzioni trovate fino ad ora.")
+    except Exception as e:
+        # Gestione di eventuali errori
+        print(f"Errore durante l'esecuzione: {str(e)}")
+
+  
+    # Restituiamo i risultati filtrati
+    return partial_results
+
+# Funzione per trovare il pareto front
 async def pareto_front(
     inst: Instance, objectives: List[Tuple[str, OptDirection]], *args, **kwargs
 ) -> List[Result]:
-    solns = []
+    solns = []  # Lista di soluzioni
     async for res in pareto_solutions(inst, objectives, *args, **kwargs):
         is_dominated = False
         solns_to_remove = []
@@ -69,7 +92,25 @@ async def pareto_front(
         if not is_dominated:
             solns = [sol for sol in solns if sol not in solns_to_remove]
             solns.append(res)
-    return solns
+    return solns  # Ritorna le soluzioni finali (complete o parziali in caso di timeout)
+
+def pareto_front_sync(results: List[Result], objectives: List[Tuple[str, OptDirection]]) -> List[Result]:
+    solns = []  # Lista di soluzioni finali
+    for res in results:
+        is_dominated = False
+        solns_to_remove = []
+        for existing_sol in solns:
+            if all(o.better(res[name], existing_sol[name]) or res[name] == existing_sol[name] for name, o in objectives) and \
+               any(o.better(res[name], existing_sol[name]) for name, o in objectives):
+                solns_to_remove.append(existing_sol)
+            elif all(o.better(existing_sol[name], res[name]) or existing_sol[name] == res[name] for name, o in objectives) and \
+                 any(o.better(existing_sol[name], res[name]) for name, o in objectives):
+                is_dominated = True
+                break
+        if not is_dominated:
+            solns = [sol for sol in solns if sol not in solns_to_remove]
+            solns.append(res)
+    return solns  # Ritorna le soluzioni finali
 
 
 def extract_and_remove_solve_statement(file_path: str):
@@ -78,8 +119,6 @@ def extract_and_remove_solve_statement(file_path: str):
 
     new_lines = []
     objectives = []
-    onearray = False
-    twoarrays = False
 
     for line in lines:
         if line.startswith("solve"):
@@ -113,7 +152,6 @@ def extract_and_remove_solve_statement(file_path: str):
         # Add variable declarations and constraints to new_lines
         new_lines.append(f'var int: {h};\n')  # Add the declaration of the variable
         new_lines.append(f'constraint {h} = {var};\n')  # Associate the helper element with the variable with "[]"
-        print(f'Associated {h} with {var}')  # Print the association
 
     objectives = renamed_objectives  # Update objectives with the new names
 
@@ -125,10 +163,7 @@ def extract_and_remove_solve_statement(file_path: str):
     return objectives, temp_model_file, array_vars
 
 
-def main(model_file: str, data_file: str = None, solver_type: str = "gecode"):
-    onearray = False
-    twoarrays = False
-    # Extract and remove the solve statement before loading the model
+def main(model_file: str, data_file: str = None, solver_type: str = "gecode", timeout: int = None, all_solutions: bool = False):
     variables, temp_model_file, ogvar = extract_and_remove_solve_statement(model_file)
     model = Model(temp_model_file)
     
@@ -137,64 +172,105 @@ def main(model_file: str, data_file: str = None, solver_type: str = "gecode"):
 
     solver = Solver.lookup(solver_type)
     instance = Instance(solver, model)
-    
-    # If no optimization variables are specified, run MiniZinc directly with "solve satisfy;"
+
     if not variables:
         print("No variables specified for optimization. Simply solving the model...")
 
-        # Prepare the command to run MiniZinc
         command = ["minizinc", temp_model_file]
         if data_file:
             command.append(data_file)
 
-        # Run the MiniZinc model using subprocess
         result = subprocess.run(command, capture_output=True, text=True)
-
-        # Print the output of the MiniZinc execution
         print(result.stdout)
-
-        # Handle any errors that occurred during the MiniZinc execution
         if result.stderr:
             print("Error during MiniZinc execution:")
             print(result.stderr)
-
-        # Clean up the temporary file
         os.remove(temp_model_file)
         return
-	
+
     print("Finding solutions...")
 
-    # Load the MiniZinc model after modifying the file
-    results = asyncio.run(pareto_front(instance, variables))
+    # Invece di usare un loop esplicito, usa direttamente asyncio.run()
+    if timeout:
+        results = asyncio.run(run_pareto_with_timeout(instance, variables, timeout))
+    else:
+        results = asyncio.run(pareto_front(instance, variables))
+
+    # Se l'utente ha richiesto tutte le soluzioni, mostra tutte quelle trovate
+    if all_solutions:
+        filtered_results = results  # Mostra tutte le soluzioni senza filtro
+    else:
+        filtered_results = pareto_front_sync(results, variables)  # Filtra solo quelle non dominate
+
+    # Mostra le soluzioni trovate
     x_var, y_var = ogvar[0], ogvar[1] if len(ogvar) > 1 else None
-    x_values = [res[variables[0][0]] for res in results]
-    y_values = [res[variables[1][0]] for res in results] if y_var else [0] * len(x_values)
+    x_values = [res[variables[0][0]] for res in filtered_results]
+    y_values = [res[variables[1][0]] for res in filtered_results] if y_var else [0] * len(x_values)
     
-    for res in results:
+    for res in filtered_results:
         print(", ".join(f"{original_var}: {res[helper_var]}" for original_var, (helper_var, _) in zip(ogvar, variables)))
-    if variables: 
-    	plt.figure(figsize=(10, 6))
-    	plt.scatter(x_values, y_values, color='blue', s=100)
+
+    if variables:
+        plt.figure(figsize=(10, 6))
+        plt.scatter(x_values, y_values, color='blue', s=100)
     
-    	for x, y in zip(x_values, y_values):
+        for x, y in zip(x_values, y_values):
             plt.annotate(f'({x}, {y})', (x, y), xytext=(5, 5), textcoords='offset points')
     
-    	plt.xlabel(x_var)
-    	plt.ylabel(y_var if y_var else "")
-    	plt.title(f'Pareto Front: {x_var} vs {y_var}' if y_var else f'Pareto Front: {x_var}')
-    	plt.grid(True, linestyle='--', alpha=0.7)
-    	plt.tight_layout()
-    	plt.show()
+        plt.xlabel(x_var)
+        plt.ylabel(y_var if y_var else "")
+        plt.title(f'Pareto Front: {x_var} vs {y_var}' if y_var else f'Pareto Front: {x_var}')
+        plt.grid(True, linestyle='--', alpha=0.7)
+        plt.tight_layout()
+        plt.show()
 
     os.remove(temp_model_file)
 
-
 if __name__ == "__main__":
-    parser = argparse.ArgumentParser(description="Process a MiniZinc model and find the Pareto front.")
-    parser.add_argument("model_file", type=str, help="Path to the MiniZinc model file (.mzn)")
-    parser.add_argument("--data_file", type=str, default=None, help="Optional path to the MiniZinc data file (.dzn)")
-    parser.add_argument("--solver", type=str, default="gecode", help="Solver to use for MiniZinc (default: gecode)")
+    parser = argparse.ArgumentParser(
+        description="Script to process a MiniZinc model and find the Pareto front of solutions.",
+        epilog="Example usage:\n"
+               "  python script.py model.mzn --timeout 60 --all-solutions \n"
+               "  python script.py model.mzn --data_file data.dzn --solver chuffed",
+                formatter_class=argparse.RawTextHelpFormatter  # Questo forza i ritorni a capo
 
+    )
+
+    parser.add_argument(
+        "model_file", 
+        type=str, 
+        help="Path to the MiniZinc model file (.mzn)"
+    )
+
+    parser.add_argument(
+        "--data_file", 
+        type=str, 
+        default=None, 
+        help="Optional path to the MiniZinc data file (.dzn)."
+    )
+
+    parser.add_argument(
+        "--solver", 
+        type=str, 
+        default="gecode", 
+        help="Solver to use for MiniZinc (default: gecode). Other options might include 'chuffed', 'osicbc', etc."
+    )
+
+    parser.add_argument(
+        "--timeout", 
+        type=int, 
+        default=None, 
+        help="Timeout in seconds for the optimization process. If not specified, no timeout will be applied."
+    )
+
+    parser.add_argument(
+        "--all-solutions", 
+        action="store_true", 
+        help="If specified, displays all solutions found (including dominated ones). By default, only non-dominated solutions (Pareto front) are shown."
+    )
+
+    # Parse arguments
     args = parser.parse_args()
 
-    main(args.model_file, args.data_file, args.solver)
+    # Call main with parsed arguments
+    main(args.model_file, args.data_file, args.solver, args.timeout, args.all_solutions)

@@ -14,6 +14,8 @@ This project provides a Python script to solve MiniZinc models and find the Pare
  
 - **Dynamic Model Handling**: Modifies the MiniZinc model on the fly to compute the Pareto front without altering the original model file.
 
+- **All Solutions Option**: Use the `--all-solutions` flag to include all solutions, not just the non-dominated Pareto front.
+
 ## Installation
 
 ### Prerequisites
@@ -43,12 +45,19 @@ To use the script, you need a MiniZinc model file (.mzn) and optionally, a data 
 Use the following command to run the script:
 
   ```sh
-  python paretoV2.py path/to/your_model.mzn --data_file path/to/your_data.dzn
+  python paretoV2.py path/to/your_model.mzn --data_file path/to/your_data.dzn --solver gecode --timeout 10 --all-solutions
   ```
 
 - **model_file**: Path to your MiniZinc model file (.mzn)
 - **data_file**(Optional): Path to your MiniZinc data file (.dzn)
+- **solver**(Optional): Specify the solver to use for MiniZinc (default: gecode). Example: --solver chuffed
+- **timeout**(Optional): Set a timeout in seconds for the optimization process. Example: --timeout 300
+- **all-solutions** (Optional): Include all solutions, not just the Pareto front. Use this flag to see every solution found.
 
+- **help**: Display the help message with information on how to use the script
+  ```sh
+  python paretoV2.py --help
+  ```
 ### Example Command
 
   ```sh
@@ -79,7 +88,7 @@ Use the following command to run the script:
 ### Where a data file is needed:
 
   ```sh
-  python paretoV2.py examples/more/schedule.mzn --data_file examples/more/input.dzn
+  python paretoV2.py examples/more/schedule.mzn --data_file examples/more/input.dzn 
   ```
 
 ## Important Note on Writing the `solve` Statement
