@@ -243,7 +243,8 @@ if __name__ == "__main__":
     )
 
     parser.add_argument(
-        "--data_file", 
+        "data_file",  # Mantieni come argomento posizionale
+        nargs='?',  # Rende l'argomento opzionale
         type=str, 
         default=None, 
         help="Optional path to the MiniZinc data file (.dzn)."
